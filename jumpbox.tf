@@ -81,12 +81,19 @@ resource "azurerm_linux_virtual_machine" "mgmt" {
   # the mysql/postgres clients are installed via cloud-init on first boot
   # instead. custom_data only runs once at creation - it won't reapply if
   # the VM already exists, so package changes here require recreating the VM.
+  # kubectl comes from snap (not the apt archive) so a future AKS cluster in
+  # this VNet can be managed from here too - installing it now costs nothing;
+  # actually reaching a cluster's API server is a network/NSG decision that
+  # belongs to the azure-aks-cluster project once it exists.
   custom_data = base64encode(<<-CLOUDINIT
     #cloud-config
     package_update: true
     packages:
       - mysql-client
       - postgresql-client
+    snap:
+      commands:
+        - ['install', '--classic', 'kubectl']
     CLOUDINIT
   )
 }
