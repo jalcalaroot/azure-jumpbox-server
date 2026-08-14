@@ -111,9 +111,9 @@ This creates only the NIC and VM (plus the disposable SSH key) - it never touche
 
 ## Accessing the VM
 
-### 1. One-off commands via the Azure VM Agent
+Two ways in, neither needs a network path to the VM (see "Why this design" above).
 
-No setup required - works immediately after deployment.
+### One-off commands
 
 ```bash
 az vm run-command invoke \
@@ -123,54 +123,49 @@ az vm run-command invoke \
   --scripts "hostname && uptime"
 ```
 
-Use this for scripts, configuration tasks, and verification commands. Each invocation is a single round trip - there's no persistent interactive session through this path.
+No setup needed. Each call is a single round trip - not an interactive session.
 
-### 2. Interactive shell via Azure Serial Console
+### Interactive shell via Serial Console
 
-Serial Console gives you a real interactive terminal, but it logs in like a physical console - it needs a local username and password on the VM (SSH keys don't apply here, since this isn't SSH).
+Serial Console logs into the VM's local OS account (`azureuser`) with a password - it's not SSH, so the disposable SSH key Terraform generates doesn't apply here, and `disable_password_authentication` on the VM resource (which blocks SSH password auth) has no effect on it either.
 
-**One-time setup - set a password for the admin user:**
+**1. Set/rotate the password.** Paste these lines exactly as-is, as one block, into your own terminal (never share the output with anyone, including pasting it into a chat):
 
 ```bash
+JUMPBOX_PW=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 20)
+
 az vm run-command invoke \
   --resource-group rg-network \
   --name vm-mgmt-jumpbox \
   --command-id RunShellScript \
-  --scripts 'echo "azureuser:YOUR_PASSWORD_HERE" | chpasswd'
+  --scripts "echo 'azureuser:${JUMPBOX_PW}' | chpasswd"
+
+echo "$JUMPBOX_PW" > ~/jumpbox-password.txt
+echo "Password guardada en ~/jumpbox-password.txt - copiala a tu gestor de contraseñas y después borrá el archivo"
+unset JUMPBOX_PW
 ```
 
-> Use single quotes around the whole `--scripts` value if your password contains `!` or other shell special characters - otherwise your local shell may try to interpret them (e.g. bash history expansion) before the command ever reaches Azure.
+Then: `cat ~/jumpbox-password.txt`, save it in a password manager, and `rm ~/jumpbox-password.txt`.
 
-**Connect to Serial Console:**
+**2. Connect** - Portal or CLI, pick one:
 
-Via Azure CLI:
-```bash
-az extension add --name serial-console   # one-time, if not already installed
-az serial-console connect \
-  --resource-group rg-network \
-  --name vm-mgmt-jumpbox
-```
+| Where | Steps |
+|---|---|
+| Azure Portal | Open `vm-mgmt-jumpbox` → left menu → **Connect** → **Serial console** tab |
+| CLI | `az extension add --name serial-console` (once), then `az serial-console connect --resource-group rg-network --name vm-mgmt-jumpbox` |
 
-Or via the Azure Portal: VM resource -> Connect -> Serial console.
-
-At the `login:` prompt, enter `azureuser` and the password you set above.
-
-To exit the Serial Console session: `Ctrl+]` then `q`.
-
-> Serial Console authenticates against the VM's local OS login (`/etc/shadow`), which is independent of SSH. Setting `disable_password_authentication` on the VM resource (which this project does, for SSH) does not affect Serial Console login - it only affects SSH password authentication. The VM has no SSH path reachable from outside the VNet regardless.
+At the `login:` prompt: user `azureuser`, password from the file above. To exit: close the Portal tab, or `Ctrl+]` then `q` on the CLI.
 
 ### Why not plain SSH?
 
-The VM has no public IP, and the subnet's NSG denies all inbound traffic. There is no network path for SSH to reach this VM at all - the two mechanisms above are the only supported access methods by design.
+No public IP, and the subnet's NSG denies all inbound traffic - there is no network path for SSH to reach this VM. The two mechanisms above are the only supported access methods, by design.
 
 ## Sharing this project with others
 
-If someone else needs to deploy or manage this jumpbox:
-
 1. They need the network project's outputs (`resource_group_name`, `app_subnet_id`) - get these from whoever manages `azure-virtual-network`, or by running `terraform output` there directly since state is shared remotely.
 2. They create their own `terraform.tfvars` with those values - never commit this file (already covered by `.gitignore`).
-3. After `terraform apply`, they set their own password via `chpasswd` (see above) rather than reusing someone else's - each operator should set their own credential.
-4. Anyone needing Serial Console access needs the `Virtual Machine Contributor` (or higher) Azure RBAC role on this VM, since Serial Console access itself is gated by Azure RBAC in addition to the OS-level login.
+3. Each operator sets their own Serial Console password (see above) rather than reusing someone else's.
+4. Serial Console access also requires the `Virtual Machine Contributor` (or higher) Azure RBAC role on this VM, on top of the OS login.
 
 ## Destroying
 
@@ -184,6 +179,6 @@ This only removes the NIC and VM created by this project - the VNet, subnets, NS
 
 - No public IP, no open inbound ports - the smallest possible network attack surface for a VM that still needs management access.
 - The SSH key pair generated by this project is never used and never written to disk - it exists only to satisfy Azure's VM creation API. It does live inside the Terraform state file, which is why state is kept in the remote backend (encrypted at rest, access gated by Azure RBAC) rather than local disk or version control.
-- The Serial Console password is set out-of-band via `run-command`, not stored in Terraform state or any `.tf` file - rotate it periodically using the same `chpasswd` command.
+- The Serial Console password is set out-of-band via `run-command`, not stored in Terraform state or any `.tf` file - rotate it periodically using the same commands (see "Accessing the VM"). The password only ever touches your own terminal and a local temp file you delete right after - never paste it anywhere else.
 - Outbound internet access (e.g. for `apt-get update`) flows through the network project's shared NAT Gateway, associated with this subnet.
 - `subscription_id` has no hardcoded default - see Configuration above.
