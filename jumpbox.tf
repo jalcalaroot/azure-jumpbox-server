@@ -76,4 +76,17 @@ resource "azurerm_linux_virtual_machine" "mgmt" {
   }
 
   disable_password_authentication = true
+
+  # There's no SSH path to this VM to install packages after the fact, so
+  # the mysql/postgres clients are installed via cloud-init on first boot
+  # instead. custom_data only runs once at creation - it won't reapply if
+  # the VM already exists, so package changes here require recreating the VM.
+  custom_data = base64encode(<<-CLOUDINIT
+    #cloud-config
+    package_update: true
+    packages:
+      - mysql-client
+      - postgresql-client
+    CLOUDINIT
+  )
 }
