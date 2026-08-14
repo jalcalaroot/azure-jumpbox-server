@@ -15,7 +15,7 @@
 # ============================================================================
 
 variable "subscription_id" {
-  description = "Azure subscription ID - required explicitly by azurerm >= 4.0. No default on purpose: pass it via -var, a gitignored .tfvars, or the ARM_SUBSCRIPTION_ID environment variable"
+  description = "Azure subscription ID - required explicitly by azurerm >= 4.0. No default on purpose: pass it via -var, a gitignored .tfvars, or the TF_VAR_subscription_id environment variable"
   type        = string
 }
 
