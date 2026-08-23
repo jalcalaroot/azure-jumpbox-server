@@ -141,7 +141,7 @@ az vm run-command invoke \
   --scripts "echo 'azureuser:${JUMPBOX_PW}' | chpasswd"
 
 echo "$JUMPBOX_PW" > ~/jumpbox-password.txt
-echo "Password guardada en ~/jumpbox-password.txt - copiala a tu gestor de contraseñas y después borrá el archivo"
+echo "Password saved to ~/jumpbox-password.txt - copy it to your password manager, then delete the file"
 unset JUMPBOX_PW
 ```
 
